@@ -1,0 +1,135 @@
+<!-- templates/index.html -->
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>포켓몬 타입 예측</title>
+  <!-- Tailwind CSS CDN (간편 스타일링) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <div class="max-w-3xl mx-auto py-10 px-4">
+    <h1 class="text-2xl font-bold mb-6">포켓몬 타입 예측 (멀티라벨 %)</h1>
+
+    <!-- 업로드 카드 -->
+    <div class="bg-white rounded-2xl shadow p-6">
+      <div id="dropzone" class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:bg-slate-50">
+        <p class="text-slate-600 mb-2">이미지를 여기에 드래그하거나 클릭해서 선택</p>
+        <p class="text-sm text-slate-400">JPG / PNG</p>
+        <input id="fileInput" type="file" accept="image/*" class="hidden">
+      </div>
+
+      <div id="preview" class="mt-6 hidden">
+        <img id="previewImg" class="w-48 h-48 object-contain rounded-xl border" alt="preview">
+      </div>
+
+      <button id="predictBtn" class="mt-6 w-full py-3 rounded-xl bg-indigo-600 text-white font-semibold disabled:opacity-50" disabled>
+        예측 실행
+      </button>
+    </div>
+
+    <!-- 결과 -->
+    <div id="results" class="mt-8 hidden">
+      <h2 class="text-xl font-semibold mb-3">Top 결과</h2>
+      <div id="topList" class="space-y-3"></div>
+
+      <details class="mt-6">
+        <summary class="cursor-pointer text-slate-700">전체 라벨 보기</summary>
+        <div id="allList" class="mt-4 space-y-2"></div>
+      </details>
+    </div>
+
+    <footer class="mt-10 text-xs text-slate-400">
+      * 모델 입력 크기와 전처리는 학습과 동일해야 합니다. (기본: MobileNetV2, 224×224, preprocess_input)
+    </footer>
+  </div>
+
+  <script>
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+    const previewImg = document.getElementById('previewImg');
+    const predictBtn = document.getElementById('predictBtn');
+    const results = document.getElementById('results');
+    const topList = document.getElementById('topList');
+    const allList = document.getElementById('allList');
+
+    let fileBlob = null;
+
+    function resetResults() {
+      results.classList.add('hidden');
+      topList.innerHTML = '';
+      allList.innerHTML = '';
+    }
+
+    function setFile(file) {
+      if (!file) return;
+      fileBlob = file;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        previewImg.src = e.target.result;
+        preview.classList.remove('hidden');
+        predictBtn.disabled = false;
+        resetResults();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('bg-slate-100');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('bg-slate-100'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('bg-slate-100');
+      setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => setFile(e.target.files[0]));
+
+    function bar(label, percent) {
+      percent = Math.max(0, Math.min(100, percent));
+      return `
+        <div>
+          <div class="flex justify-between text-sm">
+            <span class="font-medium">${label}</span>
+            <span>${percent.toFixed(1)}%</span>
+          </div>
+          <div class="w-full bg-slate-200 rounded-full h-3 mt-1">
+            <div class="h-3 rounded-full bg-indigo-600" style="width:${percent}%;"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    predictBtn.addEventListener('click', async () => {
+      if (!fileBlob) return;
+      predictBtn.disabled = true;
+      predictBtn.textContent = '예측 중...';
+
+      try {
+        const fd = new FormData();
+        fd.append('file', fileBlob);
+
+        const res = await fetch('/predict', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '예측 실패');
+
+        // Top
+        topList.innerHTML = data.top.map(x => bar(x.label, x.percent)).join('');
+        // All
+        const sortedAll = [...data.all].sort((a,b) => b.percent - a.percent);
+        allList.innerHTML = sortedAll.map(x => bar(x.label, x.percent)).join('');
+        results.classList.remove('hidden');
+      } catch (err) {
+        alert(err.message || err);
+      } finally {
+        predictBtn.disabled = false;
+        predictBtn.textContent = '예측 실행';
+      }
+    });
+  </script>
+</body>
+</html>
