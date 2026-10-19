@@ -1,0 +1,16 @@
+# 비밀 정보
+.env
+.env.*
+!.env.example
+
+# 업로드된 사용자 이미지
+web-app/uploads/*
+!web-app/uploads/.gitkeep
+
+# 학습 데이터 (용량이 커서 제외)
+PokemonData/
+
+# 기타
+.DS_Store
+__pycache__/
+.ipynb_checkpoints/

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PokeNote • 이미지 예측</title>
+
+  <!-- 기본 전역 스타일 -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+  <!-- ⬇️ 덮어쓰기: DEX 굵게 + MOVES 간격을 '한 줄' 수준으로 -->
+  <style>
+    /* DEX: 설명 굵게 (줄바꿈 유지) */
+    #pane-dex .dex-pre { white-space: pre-wrap; font-weight: 700; }
+
+    /* MOVES 패널 간격 줄이기 */
+    #pane-moves .panel-title { margin-bottom: 6px; }
+    #pane-moves .panel-body.compact { padding-top: 6px; padding-bottom: 6px; }
+
+    /* 리스트 기본 여백 제거하고 불릿 들여쓰기 */
+    #pane-moves .moves-list { margin: 0; padding-left: 1rem; list-style: disc; }
+
+    /* '한 줄' 느낌: 항목 아래 여백만 6px, 마지막은 0 */
+    #pane-moves .moves-list.tight.onegap { row-gap: 0; } /* flex 간격 제거(혹시 있을 경우) */
+    #pane-moves .moves-list.tight.onegap .move-item {
+      margin: 0 0 6px 0;     /* 아래만 6px = 거의 한 줄 */
+      padding: 0;
+      line-height: 1.18;     /* 줄간격 살짝 압축 (원하면 1.15~1.22로 조절) */
+      font-weight: 700;      /* 굵게 */
+    }
+    #pane-moves .moves-list.tight.onegap .move-item:last-child { margin-bottom: 0; }
+
+    /* 폴백 텍스트(프리포맷)도 동일한 간격감 */
+    #pane-moves .moves-pre,
+    #pane-moves .moves-pre.compact-pre {
+      white-space: pre-wrap;
+      line-height: 1.18;
+      margin: 0;
+      font-weight: 700;
+    }
+
+    /* 공통 유틸 */
+    .muted { opacity: .75; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+    .tab { padding: 6px 10px; border-radius: 999px; border: 0; background: #1f3551; color: #cfe7ff; cursor: pointer; }
+    .tab.is-active { background: #2b74f0; color: #fff; }
+    .pane { display: none; }
+    .pane[aria-hidden="false"] { display: block; }
+    .dex-panel { background: #f7fbff; border-radius: 12px; padding: 12px; }
+    .panel-title { font-weight: 800; margin-bottom: 8px; }
+    .panel-body { white-space: normal; }
+    .stat-note { opacity: .8; padding: 12px 8px; }
+  </style>
+</head>
+<body>
+  <div class="site-bg">
+    <div class="dex-shell">
+      <!-- 상단 캡 & 인디케이터 -->
+      <div class="dex-topbar">
+        <div class="lamps">
+          <span class="lamp lamp-red"></span>
+          <span class="lamp lamp-yellow"></span>
+          <span class="lamp lamp-green"></span>
+        </div>
+        <div class="dex-title">
+          <span class="pokeball"></span>
+          PokeNote
+        </div>
+        <div class="dex-model">Model: <code>{{ model_name }}</code></div>
+      </div>
+
+      <div class="dex-body">
+        <!-- 힌지 라인(디테일) -->
+        <div class="hinge"></div>
+
+        <!-- 스캐너 도크(업로드 영역) -->
+        <form class="dock uploader" method="POST" action="{{ url_for('predict') }}" enctype="multipart/form-data">
+          <label class="dock-label">SCAN MODULE</label>
+          <div class="dock-inner">
+            <input type="file" name="file" accept="image/*" required />
+            <button type="submit" class="btn-scan">예측 실행</button>
+          </div>
+        </form>
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash-list">
+              {% for m in messages %}
+              <div class="flash">{{ m }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <!-- 스크린 구역 -->
+        <section class="screen-grid">
+          <div class="main-screen crt">
+            {% if file_url %}
+              <img class="preview-img" src="{{ file_url }}" alt="업로드 미리보기">
+            {% else %}
+              <div class="placeholder">
+                <span>이미지를 스캔하면 미리보기가 표시됩니다.</span>
+              </div>
+            {% endif %}
+            <!-- 리벳 디테일 -->
+            <div class="rivets">
+              <span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+
+          <div class="info-screen">
+            <!-- 탭바 -->
+            <div class="tabs" role="tablist" aria-label="PokeNote sections">
+              <button class="tab is-active" data-tab="dex" role="tab" aria-selected="true">DEX</button>
+              <button class="tab" data-tab="stats" role="tab" aria-selected="false">STATS</button>
+              <button class="tab" data-tab="moves" role="tab" aria-selected="false">MOVES</button>
+            </div>
+
+            <div class="tabpanes">
+              <!-- DEX -->
+              <section id="pane-dex" class="pane" role="tabpanel" aria-hidden="false">
+                {% if file_url %}
+                  <div class="dex-panel">
+                    <div class="panel-title">간단 도감 설명</div>
+                    <div class="panel-body">
+                      {% if info_overview %}
+                        <pre class="dex-pre">{{ info_overview }}</pre>
+                      {% elif info_full %}
+                        <pre class="dex-pre">{{ info_full }}</pre>
+                      {% else %}
+                        <span class="muted">예측 후 도감 설명이 표시됩니다.</span>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% else %}
+                  <div class="stat-note">이미지를 스캔하면 DEX 패널을 사용할 수 있습니다.</div>
+                {% endif %}
+              </section>
+
+              <!-- STATS -->
+              <section id="pane-stats" class="pane" role="tabpanel" aria-hidden="true">
+                {% if file_url %}
+                  <div class="stat-row">
+                    <div class="stat-label">신뢰도</div>
+                    <div class="stat-bar">
+                      <div class="stat-fill" style="width: {{ confidence|replace('%','') }}%;"></div>
+                    </div>
+                    <div class="stat-val">{{ confidence }}</div>
+                  </div>
+
+                  <div class="stat-note">
+                    가장 높은 신뢰도만 출력합니다.
+                  </div>
+                {% else %}
+                  <div class="stat-note">예측 결과가 없습니다. 먼저 이미지를 스캔하세요.</div>
+                {% endif %}
+              </section>
+
+              <!-- MOVES -->
+              <section id="pane-moves" class="pane" role="tabpanel" aria-hidden="true">
+                {% if file_url %}
+                  <div class="dex-panel">
+                    <div class="panel-title">대표 기술</div>
+                    <div class="panel-body compact">
+                      {% if moves_list and moves_list|length %}
+                        <!-- ⬇️ 공백을 '한 줄' 수준으로 줄인 리스트 -->
+                        <ul class="moves-list tight onegap">
+                          {% for line in moves_list %}
+                            <!-- 수동 불릿(•)은 제거하고 네이티브 불릿 사용 -->
+                            <li class="move-item">{{ line }}</li>
+                          {% endfor %}
+                        </ul>
+                      {% else %}
+                        {% if moves_text %}
+                          <pre class="moves-pre compact-pre">{{ moves_text }}</pre>
+                        {% else %}
+                          <span class="muted">대표 기술 정보를 불러오지 못했사옵니다.</span>
+                        {% endif %}
+                      {% endif %}
+                    </div>
+                  </div>
+                {% else %}
+                  <div class="stat-note">이미지를 스캔하면 기술(MOVES) 패널을 사용할 수 있습니다.</div>
+                {% endif %}
+              </section>
+            </div> <!-- /.tabpanes -->
+          </div> <!-- /.info-screen -->
+        </section> <!-- /.screen-grid -->
+      </div> <!-- /.dex-body -->
+    </div> <!-- /.dex-shell -->
+  </div> <!-- /.site-bg -->
+
+  <!-- 간단 탭 스크립트 -->
+  <script>
+    const tabs = document.querySelectorAll('.tab');
+    const panes = {
+      dex: document.getElementById('pane-dex'),
+      stats: document.getElementById('pane-stats'),
+      moves: document.getElementById('pane-moves')
+    };
+    tabs.forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        tabs.forEach(b=>{ b.classList.remove('is-active'); b.setAttribute('aria-selected','false'); });
+        Object.values(panes).forEach(p=>{ p.classList.remove('is-active'); p.setAttribute('aria-hidden','true'); });
+        btn.classList.add('is-active'); btn.setAttribute('aria-selected','true');
+        const id = btn.dataset.tab;
+        panes[id].classList.add('is-active'); panes[id].setAttribute('aria-hidden','false');
+      });
+    });
+  </script>
+</body>
+</html>
